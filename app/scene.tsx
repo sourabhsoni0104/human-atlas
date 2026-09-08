@@ -8,6 +8,8 @@ import {decodeModelResponse} from './model-download';
 import {PointerTap} from './pointer-tap';
 import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import {createXRSession,xrSessionError} from './xr/session';
+import {createXRControllers,rayFromController,type XRControllerInput} from './xr/input';
+import {pickAnatomy,type AnatomyPickingContext} from './xr/picking';
 import type {ImmersiveXRMode} from './xr/types';
 interface Props {atlas:Atlas;state:SceneState;onSelect:(id:string)=>void;onProgress:(n:number)=>void;onError:(s:string)=>void;onXRError:(s:string)=>void;onXRSessionStart:(mode:ImmersiveXRMode)=>void;onXRSessionEnd:()=>void}
 export interface AnatomySceneHandle {enterXR:(mode:ImmersiveXRMode)=>Promise<void>;exitXR:()=>Promise<void>}
@@ -88,17 +90,21 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
    controls.target.set(extent>.1&&el.clientWidth>767?-packingWidth*.12:0,extent>.1||mobile?.85:.68,0);camera.position.copy(controls.target).addScaledVector(direction,distance);controls.update();dirty=true;
   };
   const resize=()=>{if(renderer.xr.isPresenting)return;layoutKey='';lastState=null;renderer.setPixelRatio(Math.min(devicePixelRatio,el.clientWidth<768||el.clientHeight<600?1.5:2));camera.aspect=el.clientWidth/el.clientHeight;camera.updateProjectionMatrix();renderer.setSize(el.clientWidth,el.clientHeight);fit(latest.current.view,amount);};const observer=new ResizeObserver(resize);observer.observe(el);
-  const raycaster=new T.Raycaster(),pointer=new T.Vector2(),tap=new PointerTap(),worldBox=new T.Box3(),hitPoint=new T.Vector3();
+  const raycaster=new T.Raycaster(),pointer=new T.Vector2(),tap=new PointerTap(),picking:AnatomyPickingContext={parts:atlas.parts,pickers,bounds,partState:data,atlasRoot};
   const down=(e:PointerEvent)=>{hover.hidden=true;tap.down(e.pointerId,e.clientX,e.clientY,e.pointerType==='touch'?12:5);};
   const move=(e:PointerEvent)=>{tap.move(e.pointerId,e.clientX,e.clientY);if(e.buttons||amount<.5||e.pointerType==='touch'){hover.hidden=true;return;}const rect=el.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top,index=findTarget(x,y,12);hover.hidden=index<0;renderer.domElement.style.cursor=index<0?'grab':'pointer';if(index>=0){hover.textContent=atlas.parts[index].name;hover.style.left=`${Math.max(8,Math.min(x+14,el.clientWidth-260))}px`;hover.style.top=`${Math.max(8,Math.min(y+18,el.clientHeight-55))}px`;}};
   const cancel=(e:PointerEvent)=>tap.cancel(e.pointerId);
   const up=(e:PointerEvent)=>{
    const validTap=tap.up(e.pointerId,e.clientX,e.clientY);if(!validTap||!ready)return;const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);raycaster.setFromCamera(pointer,camera);
-   let nearest=Infinity,found=-1;const hasSolid=atlas.parts.some((p,i)=>p.system!=='integumentary'&&data[i*4+3]>.5);
-   pickers.forEach((mesh,i)=>{if(!mesh||data[i*4+3]<.5||(hasSolid&&atlas.parts[i].system==='integumentary'))return;worldBox.copy(bounds[i]).translate(mesh.position);if(!raycaster.ray.intersectBox(worldBox,hitPoint))return;const hits=raycaster.intersectObject(mesh,false);if(hits[0]&&hits[0].distance<nearest){nearest=hits[0].distance;found=i;}});
+   let found=pickAnatomy(raycaster.ray,picking)?.index??-1;
    if(found<0&&amount>.45)found=findTarget(e.clientX-rect.left,e.clientY-rect.top,e.pointerType==='touch'?24:16);if(found>=0){hover.hidden=true;select.current(atlas.parts[found].id);}
   };
   renderer.domElement.addEventListener('pointerdown',down);renderer.domElement.addEventListener('pointermove',move);renderer.domElement.addEventListener('pointerup',up);renderer.domElement.addEventListener('pointercancel',cancel);
+  const controllerRay=new T.Ray();let xrHover=-1;
+  const setXRHover=(index:number)=>{if(index===xrHover)return;if(xrHover>=0)selectedData[xrHover*4]=latest.current.selected.includes(atlas.parts[xrHover].id)?255:0;xrHover=index;if(index>=0&&selectedData[index*4]===0)selectedData[index*4]=128;selectionTexture.needsUpdate=true;dirty=true;};
+  const controllerHit=(input:XRControllerInput)=>ready?pickAnatomy(rayFromController(input.targetRay,controllerRay),picking):null;
+  const controllers=createXRControllers(renderer,scene,input=>{const hit=controllerHit(input);if(hit){setXRHover(-1);select.current(atlas.parts[hit.index].id);}});
+  const updateXRControllers=()=>{let hovered=-1;controllers.inputs.forEach(input=>{if(!input.connected)return;const hit=controllerHit(input);input.rayLine.scale.z=hit?.distance??1.8;if(hovered<0&&hit)hovered=hit.index;});setXRHover(hovered);};
   const clock=new T.Clock();let lastExtent=-1;
   const tick=(immersive=false)=>{
    if(disposed)return;const dt=Math.min(clock.getDelta(),.05),s=latest.current;
@@ -117,8 +123,9 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
      else {const t=(amount-.45)/.55,group=SYSTEMS.findIndex(sys=>sys.id===p.system),angle=group/SYSTEMS.length*Math.PI*2;dx=T.MathUtils.lerp(Math.sin(angle)*.48,destination.x-c.x,t);dy=T.MathUtils.lerp((c.y-.85)*.28,destination.y-c.y,t);dz=T.MathUtils.lerp(Math.cos(angle)*.48,-c.z,t);}
      const selected=selection.has(p.id);data.set([dx,dy,dz,(s.isolate?selected:visible.has(p.system)||selected)?1:0],i*4);selectedData[i*4]=selected?255:0;
      markerPositions.set(data[i*4+3]>.5?[c.x+dx,c.y+dy,c.z+dz]:[10000,10000,10000],i*3);const mesh=pickers[i];if(mesh){mesh.position.set(dx,dy,dz);mesh.updateMatrix();mesh.updateMatrixWorld(true);}
-    });partTexture.needsUpdate=true;selectionTexture.needsUpdate=true;markerGeometry.attributes.position.needsUpdate=true;lastState=s;lastExtent=amount;dirty=true;
+    });if(xrHover>=0&&selectedData[xrHover*4]===0)selectedData[xrHover*4]=128;partTexture.needsUpdate=true;selectionTexture.needsUpdate=true;markerGeometry.attributes.position.needsUpdate=true;lastState=s;lastExtent=amount;dirty=true;
    }
+   if(immersive)updateXRControllers();
    if(!immersive&&(s.view!==lastView||s.reset!==lastReset)){fit(s.view,amount);lastView=s.view;lastReset=s.reset;}
    if(!immersive&&moving&&!s.isolate)fit(amount>.5?'front':s.view,Math.max(0,(amount-.3)/.7));
    const isolateKey=s.isolate?s.selected.join(',')+':'+s.reset+':'+s.inspectorOpen+':'+camera.aspect:'';
@@ -133,13 +140,13 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
 
   };
   const animate=()=>{if(disposed||xrSession)return;frame=requestAnimationFrame(animate);tick(false);};
-  const restoreDesktop=()=>{renderer.setAnimationLoop(null);xrMode=null;atlasRoot.position.set(0,0,0);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);renderer.setClearColor('#f2f3f3',1);controls.enabled=true;clock.start();resize();fit(latest.current.view,amount);dirty=true;animate();};
+  const restoreDesktop=()=>{renderer.setAnimationLoop(null);setXRHover(-1);controllers.reset();xrMode=null;atlasRoot.position.set(0,0,0);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);renderer.setClearColor('#f2f3f3',1);controls.enabled=true;clock.start();resize();fit(latest.current.view,amount);dirty=true;animate();};
   const sessionEnded=()=>{if(!xrSession)return;xrSession=null;if(!disposed){restoreDesktop();xrEnd.current();}};
   enterXR.current=async(mode)=>{if(disposed||xrStarting||xrSession)return;xrStarting=true;try{const session=await createXRSession(mode);if(disposed){await session.end();return;}cancelAnimationFrame(frame);frame=0;xrSession=session;xrMode=mode;session.addEventListener('end',sessionEnded,{once:true});renderer.xr.setReferenceSpaceType('local-floor');await renderer.xr.setSession(session);atlasRoot.position.set(0,0,-1.8);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);renderer.setClearColor(mode==='mr'?0x000000:0x171a1d,mode==='mr'?0:1);hover.hidden=true;clock.start();renderer.setAnimationLoop(()=>tick(true));dirty=true;xrStart.current(mode);}catch(error){if(xrSession){xrSession.removeEventListener('end',sessionEnded);const failed=xrSession;xrSession=null;await failed.end().catch(()=>{});restoreDesktop();}xrError.current(xrSessionError(mode,error));}finally{xrStarting=false;}};
   exitXR.current=async()=>{if(xrSession)await xrSession.end();};
   animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
-  return()=>{disposed=true;abort.abort();enterXR.current=async()=>{};exitXR.current=async()=>{};cancelAnimationFrame(frame);renderer.setAnimationLoop(null);if(xrSession)void xrSession.end();observer.disconnect();controls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();enterXR.current=async()=>{};exitXR.current=async()=>{};cancelAnimationFrame(frame);renderer.setAnimationLoop(null);if(xrSession)void xrSession.end();observer.disconnect();controllers.dispose();controls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
  return <div className="scene" ref={host}/>;
 });
