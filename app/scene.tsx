@@ -8,7 +8,7 @@ import {decodeModelResponse} from './model-download';
 import {PointerTap} from './pointer-tap';
 import {SYSTEMS,type Atlas,type SceneState} from './anatomy';
 import {createXRSession,xrSessionError} from './xr/session';
-import {createXRControllers,rayFromController,type XRControllerInput} from './xr/input';
+import {createXRControllers,createXRHands,rayFromController,type XRControllerInput} from './xr/input';
 import {pickAnatomy,type AnatomyPickingContext} from './xr/picking';
 import {createAtlasManipulator,type AtlasManipulator} from './xr/manipulation';
 import {createXRSpatialUI,type XRUIAction} from './xr/ui';
@@ -105,7 +105,8 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
   const controllerRay=new T.Ray(),spatialUI=createXRSpatialUI(scene),partIndices=new Map(atlas.parts.map((part,index)=>[part.id,index]));let xrHover=-1,manipulator:AtlasManipulator;
   const setXRHover=(index:number)=>{if(index===xrHover)return;if(xrHover>=0)selectedData[xrHover*4]=latest.current.selected.includes(atlas.parts[xrHover].id)?255:0;xrHover=index;if(index>=0&&selectedData[index*4]===0)selectedData[index*4]=128;selectionTexture.needsUpdate=true;dirty=true;};
   const inputHit=(input:XRControllerInput)=>{const ray=rayFromController(input.targetRay,controllerRay),ui=spatialUI.pick(ray);return {ui,anatomy:ui||!ready?null:pickAnatomy(ray,picking)};};
-  const controllers=createXRControllers(renderer,scene,{onSelect:input=>{const hit=inputHit(input);if(hit.ui){xrAction.current(hit.ui.action);return;}if(hit.anatomy){setXRHover(-1);select.current(atlas.parts[hit.anatomy.index].id);}},onGrabStart:input=>manipulator.start(input),onGrabEnd:input=>manipulator.end(input)});manipulator=createAtlasManipulator(atlasRoot);
+  const activateInput=(input:XRControllerInput)=>{const hit=inputHit(input);if(hit.ui){xrAction.current(hit.ui.action);return;}if(hit.anatomy){setXRHover(-1);select.current(atlas.parts[hit.anatomy.index].id);}};
+  const controllers=createXRControllers(renderer,scene,{onSelect:activateInput,onGrabStart:input=>manipulator.start(input),onGrabEnd:input=>manipulator.end(input)}),hands=createXRHands(renderer,scene,controllers,activateInput);manipulator=createAtlasManipulator(atlasRoot);
   const updateXRControllers=()=>{let hovered=-1,uiHover:XRUIAction|null=null;controllers.inputs.forEach(input=>{if(!input.connected)return;const hit=inputHit(input);input.rayLine.scale.z=hit.ui?.distance??hit.anatomy?.distance??1.8;if(!uiHover&&hit.ui)uiHover=hit.ui.action;if(hovered<0&&!hit.ui&&hit.anatomy)hovered=hit.anatomy.index;});spatialUI.setHover(uiHover);setXRHover(hovered);};
   const clock=new T.Clock();let lastExtent=-1;
   const tick=(immersive=false)=>{
@@ -127,7 +128,7 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
      markerPositions.set(data[i*4+3]>.5?[c.x+dx,c.y+dy,c.z+dz]:[10000,10000,10000],i*3);const mesh=pickers[i];if(mesh){mesh.position.set(dx,dy,dz);mesh.updateMatrix();mesh.updateMatrixWorld(true);}
     });if(xrHover>=0&&selectedData[xrHover*4]===0)selectedData[xrHover*4]=128;partTexture.needsUpdate=true;selectionTexture.needsUpdate=true;markerGeometry.attributes.position.needsUpdate=true;lastState=s;lastExtent=amount;dirty=true;
    }
-   if(immersive){manipulator.update();const selectedIndex=s.selected[0]?partIndices.get(s.selected[0]):-1,selectedPart=selectedIndex===undefined||selectedIndex<0?undefined:atlas.parts[selectedIndex];spatialUI.update({mode:xrMode??'mr',selectedName:selectedPart?.name,selectedSystem:SYSTEMS.find(system=>system.id===selectedPart?.system)?.name,isolated:s.isolate});updateXRControllers();}
+   if(immersive){manipulator.update();hands.update();const selectedIndex=s.selected[0]?partIndices.get(s.selected[0]):-1,selectedPart=selectedIndex===undefined||selectedIndex<0?undefined:atlas.parts[selectedIndex];spatialUI.update({mode:xrMode??'mr',selectedName:selectedPart?.name,selectedSystem:SYSTEMS.find(system=>system.id===selectedPart?.system)?.name,isolated:s.isolate});updateXRControllers();}
    if(!immersive&&(s.view!==lastView||s.reset!==lastReset)){fit(s.view,amount);lastView=s.view;lastReset=s.reset;}
    if(!immersive&&moving&&!s.isolate)fit(amount>.5?'front':s.view,Math.max(0,(amount-.3)/.7));
    const isolateKey=s.isolate?s.selected.join(',')+':'+s.reset+':'+s.inspectorOpen+':'+camera.aspect:'';
@@ -143,14 +144,14 @@ const AnatomyScene=forwardRef<AnatomySceneHandle,Props>(function AnatomyScene({a
   };
   const animate=()=>{if(disposed||xrSession)return;frame=requestAnimationFrame(animate);tick(false);};
   const resetPlacement=()=>{manipulator.clear();atlasRoot.position.set(0,0,-1.8);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);atlasRoot.updateMatrixWorld(true);dirty=true;};resetXRPlacement.current=resetPlacement;
-  const restoreDesktop=()=>{renderer.setAnimationLoop(null);setXRHover(-1);controllers.reset();manipulator.clear();spatialUI.group.visible=false;xrMode=null;atlasRoot.position.set(0,0,0);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);renderer.setClearColor('#f2f3f3',1);controls.enabled=true;clock.start();resize();fit(latest.current.view,amount);dirty=true;animate();};
+  const restoreDesktop=()=>{renderer.setAnimationLoop(null);setXRHover(-1);controllers.reset();hands.reset();manipulator.clear();spatialUI.group.visible=false;xrMode=null;atlasRoot.position.set(0,0,0);atlasRoot.rotation.set(0,0,0);atlasRoot.scale.setScalar(1);renderer.setClearColor('#f2f3f3',1);controls.enabled=true;clock.start();resize();fit(latest.current.view,amount);dirty=true;animate();};
   const sessionEnded=()=>{if(!xrSession)return;xrSession=null;if(!disposed){restoreDesktop();xrEnd.current();}};
   enterXR.current=async(mode)=>{if(disposed||xrStarting||xrSession)return;xrStarting=true;try{const session=await createXRSession(mode);if(disposed){await session.end();return;}cancelAnimationFrame(frame);frame=0;xrSession=session;xrMode=mode;session.addEventListener('end',sessionEnded,{once:true});renderer.xr.setReferenceSpaceType('local-floor');await renderer.xr.setSession(session);resetPlacement();spatialUI.group.visible=true;renderer.setClearColor(mode==='mr'?0x000000:0x171a1d,mode==='mr'?0:1);hover.hidden=true;clock.start();renderer.setAnimationLoop(()=>tick(true));dirty=true;xrStart.current(mode);}catch(error){if(xrSession){xrSession.removeEventListener('end',sessionEnded);const failed=xrSession;xrSession=null;await failed.end().catch(()=>{});restoreDesktop();}xrError.current(xrSessionError(mode,error));}finally{xrStarting=false;}};
   exitXR.current=async()=>{if(xrSession)await xrSession.end();};
   switchXR.current=async mode=>{if(xrMode===mode)return;if(xrSession)await xrSession.end();await enterXR.current(mode);};
   animate();
   const contextLost=(e:Event)=>{e.preventDefault();onError('The 3D session was paused by your device. Reload to continue.');};renderer.domElement.addEventListener('webglcontextlost',contextLost);
-  return()=>{disposed=true;abort.abort();enterXR.current=async()=>{};exitXR.current=async()=>{};switchXR.current=async()=>{};resetXRPlacement.current=()=>{};cancelAnimationFrame(frame);renderer.setAnimationLoop(null);if(xrSession)void xrSession.end();observer.disconnect();spatialUI.dispose();controllers.dispose();controls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
+  return()=>{disposed=true;abort.abort();enterXR.current=async()=>{};exitXR.current=async()=>{};switchXR.current=async()=>{};resetXRPlacement.current=()=>{};cancelAnimationFrame(frame);renderer.setAnimationLoop(null);if(xrSession)void xrSession.end();observer.disconnect();spatialUI.dispose();hands.dispose();controllers.dispose();controls.dispose();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());scene.traverse(o=>{if(o instanceof T.Mesh&&!geometries.includes(o.geometry)){o.geometry.dispose();const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>m.dispose());}});env.dispose();partTexture.dispose();selectionTexture.dispose();markerGeometry.dispose();markerMaterial.dispose();hover.remove();renderer.dispose();renderer.domElement.remove();};
  },[atlas]);
  return <div className="scene" ref={host}/>;
 });
