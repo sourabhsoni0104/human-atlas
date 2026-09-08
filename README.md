@@ -2,7 +2,7 @@
 
 An interactive 3D anatomy explorer built with React, Three.js, and shadcn/ui. Take the BodyParts3D adult male reference apart into **2,234 individually selectable meshes**, explore **15 anatomical systems**, and search **3,432 named concepts**.
 
-**[Explore the live demo](https://human-atlas-seven.vercel.app)**
+**[Explore the live demo](https://human-atlas-zeta.vercel.app)**
 
 ## Explore
 
@@ -12,6 +12,12 @@ An interactive 3D anatomy explorer built with React, Three.js, and shadcn/ui. Ta
 - Search anatomical names and source identifiers.
 - Isolate a selected structure and read its details.
 - Use compact controls and detail panels on mobile.
+
+## Meta Quest XR
+
+On supported devices, enter mixed reality with passthrough or a lightweight virtual reality anatomy lab. Quest controllers and hand pinch can select structures and spatial controls; squeeze/grip moves the atlas, and two inputs rotate and scale it. Desktop and XR share the same anatomy state and optimized Three.js renderer.
+
+See [README_XR.md](README_XR.md) for controls, diagnostics, Quest packaging, and the hardware-validation checklist.
 
 ## Run locally
 

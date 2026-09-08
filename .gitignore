@@ -19,6 +19,9 @@
 # misc
 .DS_Store
 *.pem
+*.keystore
+*.jks
+/quest-build/
 
 # debug
 npm-debug.log*

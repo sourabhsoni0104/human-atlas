@@ -16,12 +16,13 @@ import type {XRUIAction} from './xr/ui';
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
 const initialXR:XRState={...NO_XR_SUPPORT,presenting:false,mode:'desktop'};
 export default function Home(){
- const detailTitle=useRef<HTMLHeadingElement>(null),scene=useRef<AnatomySceneHandle>(null);
+ const detailTitle=useRef<HTMLHeadingElement>(null),scene=useRef<AnatomySceneHandle>(null),autoXR=useRef(false);
  const [atlas,setAtlas]=useState<Atlas|null>(null),[state,setState]=useState(initial),[progress,setProgress]=useState(0),[error,setError]=useState(''),[panel,setPanel]=useState<'layers'|'search'|null>(null),[details,setDetails]=useState(false),[about,setAbout]=useState(false),[query,setQuery]=useState(''),[chosen,setChosen]=useState<Concept|null>(null);
  const [xr,setXR]=useState<XRState>(initialXR),[xrNotice,setXRNotice]=useState('');
  useEffect(()=>{const abort=new AbortController();setProgress(0);setError('');setAtlas(null);setChosen(null);setDetails(false);setState({...initial,visible:DEFAULT_VISIBLE});fetch('/models/atlas.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw new Error('The anatomy catalogue could not be loaded.');return r.json();}).then(data=>setAtlas(data as Atlas)).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>abort.abort();},[]);
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='/'&&!(e.target instanceof HTMLInputElement)&&!(e.target instanceof HTMLTextAreaElement)){e.preventDefault();setPanel('search');setDetails(false);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
  useEffect(()=>{let active=true;detectXRSupport().then(support=>{if(active)setXR(current=>({...current,...support}));});return()=>{active=false;};},[]);
+ useEffect(()=>{if(autoXR.current||!atlas||progress<100||!xr.supported)return;const requested=new URLSearchParams(location.search).get('xr');if(requested!=='mr'&&requested!=='vr')return;const standalone=matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches||(navigator as Navigator&{standalone?:boolean}).standalone===true;if(!standalone)return;const mode:ImmersiveXRMode|null=requested==='mr'?(xr.mrSupported?'mr':xr.vrSupported?'vr':null):(xr.vrSupported?'vr':xr.mrSupported?'mr':null);if(!mode)return;autoXR.current=true;void scene.current?.enterXR(mode);},[atlas,progress,xr.supported,xr.mrSupported,xr.vrSupported]);
  const parts=useMemo(()=>new Map(atlas?.parts.map(p=>[p.id,p])),[atlas]);
  const counts=useMemo(()=>Object.fromEntries(SYSTEMS.map(s=>[s.id,atlas?.parts.filter(p=>p.system===s.id).length??0])),[atlas]);
  const activeSystems=SYSTEMS.filter(s=>counts[s.id]>0);
