@@ -12,6 +12,7 @@ import AnatomyScene,{type AnatomySceneHandle} from './scene';
 import {DEFAULT_VISIBLE,SYSTEMS,EXPLANATIONS,explanation,type Atlas,type Concept,type SceneState,type SystemId,type View} from './anatomy';
 import {detectXRSupport,NO_XR_SUPPORT} from './xr/support';
 import type {ImmersiveXRMode,XRState} from './xr/types';
+import type {XRUIAction} from './xr/ui';
 const initial:SceneState={explode:0,visible:DEFAULT_VISIBLE,selected:[],isolate:false,view:'three-quarter',rotate:false,reset:0};
 const initialXR:XRState={...NO_XR_SUPPORT,presenting:false,mode:'desktop'};
 export default function Home(){
@@ -31,11 +32,12 @@ export default function Home(){
  useEffect(()=>{if(!atlas)return;return registerAtlasTools(atlas,c=>flushSync(()=>choose(c)));},[atlas]);
  const choosePart=(id:string)=>{const p=parts.get(id);if(!p)return;setChosen({id:p.conceptId,name:p.name,elements:[id]});setState(s=>({...s,selected:[id],isolate:false,rotate:false}));setDetails(true);setPanel(null);};
  const toggle=(id:SystemId)=>{setDetails(false);setState(s=>({...s,selected:[],isolate:false,visible:s.visible.includes(id)?s.visible.filter(x=>x!==id):[...s.visible,id]}));};
- const reset=()=>{setState(s=>({...initial,visible:DEFAULT_VISIBLE,reset:s.reset+1}));setChosen(null);setDetails(false);setPanel(null);};
+ const reset=()=>{setState(s=>({...initial,visible:DEFAULT_VISIBLE,reset:s.reset+1}));scene.current?.resetXRPlacement();setChosen(null);setDetails(false);setPanel(null);};
  const openPanel=(next:'layers'|'search')=>{setDetails(false);setPanel(p=>p===next?null:next);};
  const beginXR=(mode:ImmersiveXRMode)=>{setXRNotice('');setPanel(null);setDetails(false);void scene.current?.enterXR(mode);};
+ const handleXRAction=(action:XRUIAction)=>{const organs:SystemId[]=['cardiac','respiratory','digestive','urinary','endocrine','reproductive'];if(action==='exit'){void scene.current?.exitXR();return;}if(action==='mr'||action==='vr'){void scene.current?.switchXR(action);return;}if(action==='reset'){reset();return;}if(action==='explode'){setState(s=>({...s,explode:s.explode>.05?0:.45,rotate:false}));return;}if(action==='isolate'){setState(s=>s.selected.length?{...s,isolate:!s.isolate,explode:0}:s);return;}if(action==='clear-selection'){setState(s=>({...s,selected:[],isolate:false}));setChosen(null);return;}const visible=action==='all'?activeSystems.map(system=>system.id):action==='skeleton'?['skeletal'] as SystemId[]:action==='organs'?organs:action==='cardiovascular'?['cardiac','arterial','venous'] as SystemId[]:[action] as SystemId[];setState(s=>({...s,visible,selected:[],isolate:false,rotate:false}));setChosen(null);};
  return <main className={`studio ${xr.presenting?'xr-presenting':''}`}>
-  {atlas&&<AnatomyScene ref={scene} atlas={atlas} state={{...state,inspectorOpen:details&&selectedParts.length>0}} onSelect={choosePart} onProgress={n=>{setProgress(n);if(n===100)setError('');}} onError={setError} onXRError={setXRNotice} onXRSessionStart={mode=>{setXRNotice('');setXR(s=>({...s,presenting:true,mode}));}} onXRSessionEnd={()=>setXR(s=>({...s,presenting:false,mode:'desktop'}))}/>}
+  {atlas&&<AnatomyScene ref={scene} atlas={atlas} state={{...state,inspectorOpen:details&&selectedParts.length>0}} onSelect={choosePart} onProgress={n=>{setProgress(n);if(n===100)setError('');}} onError={setError} onXRError={setXRNotice} onXRSessionStart={mode=>{setXRNotice('');setXR(s=>({...s,presenting:true,mode}));}} onXRSessionEnd={()=>setXR(s=>({...s,presenting:false,mode:'desktop'}))} onXRAction={handleXRAction}/>}
   <div className="vignette"/>
   <header className="identity"><div className="eyebrow"><span className="status-dot"/> INTERACTIVE ANATOMY</div><h1>Human Atlas<Badge variant="outline" className="edition">3D</Badge></h1><div className="identity-meta">{atlas?atlas.parts.length.toLocaleString():'2,234'} modeled pieces <span>·</span> BodyParts3D</div></header>
   <nav className="top-actions" aria-label="Explorer panels"><Button variant="ghost" className={panel==='search'?'active':''} onClick={()=>openPanel('search')} aria-label="Search anatomy"><Search size={18}/><span>Find a structure</span><kbd>/</kbd></Button><Button variant="ghost" className="icon-button" aria-label="About this atlas" onClick={()=>{setDetails(false);setPanel(null);setAbout(true);}}><Info size={18}/></Button></nav>
