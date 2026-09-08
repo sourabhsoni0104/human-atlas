@@ -6,7 +6,7 @@ export async function createXRSession(mode:ImmersiveXRMode):Promise<XRSession>{
  if(!navigator.xr)throw new Error(`${mode==='mr'?'Mixed reality':'Virtual reality'} is not supported on this browser.`);
  return navigator.xr.requestSession(sessionMode(mode),{
   requiredFeatures:['local-floor'],
-  optionalFeatures:['hand-tracking'],
+  optionalFeatures:['hand-tracking','high-fixed-foveation-level'],
  });
 }
 
